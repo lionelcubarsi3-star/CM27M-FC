@@ -5,48 +5,68 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "*.zip"
-      - ".github/workflows/main.yml"
+      - '**.zip'
+      - '.github/workflows/main.yml'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Get project files
+      - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Find and extract project ZIP
+        shell: bash
+        run: |
+          set -e
+          ZIP_FILE=$(find "$GITHUB_WORKSPACE" \
+            -maxdepth 2 -type f -iname '*.zip' \
+            -not -path '*/.git/*' | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No project ZIP found"
+            exit 1
+          fi
+
+          mkdir -p extracted
+          unzip -q "$ZIP_FILE" -d extracted
+
+          echo "Extracted project files:"
+          find extracted -maxdepth 4 -type f | head -100
+
+      - name: Find Android project
+        shell: bash
+        run: |
+          set -e
+          GRADLEW=$(find extracted -type f \
+            -name gradlew -print -quit)
+
+          if [ -z "$GRADLEW" ]; then
+            echo "ERROR: No Gradle wrapper found in ZIP"
+            echo "Check whether this ZIP contains the Android source project."
+            exit 1
+          fi
+
+          echo "PROJECT_DIR=$(dirname "$GRADLEW")" \
+            >> "$GITHUB_ENV"
 
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
-
-      - name: Extract project ZIP
-        run: |
-          mkdir -p source
-          find . -maxdepth 1 -type f -iname "*.zip" -print -quit | grep -q . || {
-            echo "No project ZIP found"
-            exit 1
-          }
-          find . -maxdepth 1 -type f -iname "*.zip" -exec unzip -oq {} -d source \;
+          java-version: '17'
 
       - name: Build debug APK
         run: |
-          WRAPPER=$(find source -type f -name gradlew -print -quit)
-          if [ -z "$WRAPPER" ]; then
-            echo "No Gradle Android project found in ZIP"
-            echo "The project files need to be checked."
-            exit 1
-          fi
-          cd "$(dirname "$WRAPPER")"
+          cd "$PROJECT_DIR"
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: CM27-debug-APK
-          path: source/**/build/outputs/apk/debug/*.apk
+          name: CM27-Android-APK
+          path: extracted/**/build/outputs/apk/**/*.apk
           if-no-files-found: error
           
