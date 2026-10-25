@@ -1,0 +1,52 @@
+
+name: Build CM27 Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "*.zip"
+      - ".github/workflows/main.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get project files
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Extract project ZIP
+        run: |
+          mkdir -p source
+          find . -maxdepth 1 -type f -iname "*.zip" -print -quit | grep -q . || {
+            echo "No project ZIP found"
+            exit 1
+          }
+          find . -maxdepth 1 -type f -iname "*.zip" -exec unzip -oq {} -d source \;
+
+      - name: Build debug APK
+        run: |
+          WRAPPER=$(find source -type f -name gradlew -print -quit)
+          if [ -z "$WRAPPER" ]; then
+            echo "No Gradle Android project found in ZIP"
+            echo "The project files need to be checked."
+            exit 1
+          fi
+          cd "$(dirname "$WRAPPER")"
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CM27-debug-APK
+          path: source/**/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          
